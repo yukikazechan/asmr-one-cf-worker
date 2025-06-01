@@ -162,6 +162,7 @@ async function loadTags() {
     if (error.cause) {
       console.error("loadTags: Error cause:", error.cause);
     }
+    throw error; // Re-throw to be caught by caller
   }
 }
 
@@ -330,32 +331,6 @@ export default {
       'Access-Control-Allow-Origin': '*', // Adjust for security in production
     };
 
-    // It's better to return the response with the stream immediately.
-    // And then perform async operations, writing to the stream.
-    // However, loadTags might be critical before any operation.
-    // For now, let's assume loadTags is called and completes.
-    // A better approach for CF Workers might be to load tags into KV on deploy/schedule.
-    if (Object.keys(tagMap).length === 0) {
-        try {
-            // In a real worker, you'd await this, or ensure it's loaded via KV
-            // For simplicity in this refactor, let's make it blocking for now,
-            // but this is not ideal for a real worker's fetch handler.
-            await loadTags(); // This needs to be non-blocking or tags pre-loaded
-            if (Object.keys(tagMap).length === 0) {
-                 // If still no tags, this is an issue.
-                 // For SSE, we'd send an error event.
-                 // For now, let's return an HTTP error.
-                 // This part needs careful handling for SSE.
-            }
-        } catch (e: any) {
-            console.error("Failed to load tags during request:", e);
-            // Again, for SSE, send an error event.
-            // For now, an HTTP error.
-            return new Response(`Failed to initialize tags: ${e.message}`, { status: 500 });
-        }
-    }
-
-
     // Route based on pathname
     if (pathname === '/') { // Handle root path for MCP SSE connection
       // Send an initial event to confirm connection
@@ -364,8 +339,30 @@ export default {
       // The actual tool calls will come as subsequent requests or messages over this stream,
       // depending on how the MCP client and server are designed to interact.
       // For now, we just establish the stream.
+      // Asynchronously load tags if not already loaded, without blocking the SSE connection.
+      if (Object.keys(tagMap).length === 0) {
+        ctx.waitUntil(loadTags().catch(e => console.error("Background tag loading failed:", e)));
+      }
       return new Response(stream, { headers: responseHeaders });
+
     } else if (pathname === '/sse/search' && request.method === 'GET') {
+      // Ensure tags are loaded before searching
+      if (Object.keys(tagMap).length === 0) {
+        try {
+          await loadTags(); // Wait for tags specifically for this request path
+          if (Object.keys(tagMap).length === 0) {
+            sendEvent('error', { message: 'Failed to load tags, search cannot proceed.' });
+            closeStream();
+            return new Response(stream, { headers: responseHeaders });
+          }
+        } catch (e: any) {
+          console.error("Failed to load tags during /sse/search request:", e);
+          sendEvent('error', { message: `Failed to initialize tags for search: ${e.message}` });
+          closeStream();
+          return new Response(stream, { headers: responseHeaders });
+        }
+      }
+
       // Extract params from query string
       const queryParams: any = {};
       for (const [key, value] of searchParams.entries()) {
@@ -379,9 +376,9 @@ export default {
       }
 
       if (!queryParams.query) {
-        // For SSE, send an error event and close.
-        // For now, returning an HTTP error. This logic needs to be inside the stream handling.
-        return new Response("Missing 'query' parameter for search", { status: 400 });
+        sendEvent('error', { message: "Missing 'query' parameter for search" });
+        closeStream();
+        return new Response(stream, { headers: responseHeaders });
       }
       
       // Return the stream response immediately
@@ -399,6 +396,12 @@ export default {
       return new Response(stream, { headers: responseHeaders });
 
     } else if (pathname === '/sse/random' && request.method === 'GET') {
+      // Ensure tags are loaded if needed by handleRandomAsmr (current impl doesn't use them for random)
+      // If handleRandomAsmr were to use tags in the future, this check would be important.
+      // For now, this is more of a placeholder for consistency if tag logic expands.
+      // Example: if (Object.keys(tagMap).length === 0) { await loadTags(); }
+      // Add error handling similar to /sse/search if loadTags is critical here.
+
       const promise = handleRandomAsmr({}, { write: sendEvent, close: closeStream })
         .then(result => {
           sendEvent('data', result);
@@ -416,7 +419,7 @@ export default {
         // Debug endpoint to trigger tag loading and see the map
         // Not for production use
         try {
-            await loadTags(); // Ensure axios is replaced here too
+            await loadTags();
             return new Response(JSON.stringify(tagMap, null, 2), {
                 headers: { 'Content-Type': 'application/json' }
             });

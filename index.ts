@@ -117,7 +117,7 @@ async function loadTags() {
     }
     console.error("loadTags: API response received.");
     const tags = await response.json() as AsmrTag[];
-    console.error("loadTags: Raw tags from API:", JSON.stringify(tags, null, 2));
+    console.error("loadTags: Raw tags fetched. Count:", tags.length); 
     tagMap = tags.reduce((acc: { [key: string]: string }, tag: AsmrTag) => {
       acc[tag.name] = tag.name;
       if (tag.alias && Array.isArray(tag.alias)) {
@@ -151,14 +151,9 @@ async function loadTags() {
     }, {} as { [key: string]: string });
     tagMap["义父"] = "叔父/义父";
     console.error("loadTags: Tags processed and tagMap populated.");
-    console.error("loadTags: Final tagMap content:", JSON.stringify(tagMap, null, 2));
-    // fs.writeFileSync will be removed. Data needs to be stored differently in CF Workers.
-    // const outputPath = path.resolve('loaded_tags.json');
-    // fs.writeFileSync(outputPath, JSON.stringify(tagMap, null, 2));
-    // console.error(`loadTags: Tag map written to ${outputPath}`);
+    console.error("loadTags: Final tagMap populated. Keys count:", Object.keys(tagMap).length);
   } catch (error: any) {
     console.error("loadTags: Failed to load tags:", error.message);
-    // Further error details might be available depending on the fetch error structure
     if (error.cause) {
       console.error("loadTags: Error cause:", error.cause);
     }
@@ -420,7 +415,7 @@ export default {
         // Not for production use
         try {
             await loadTags();
-            return new Response(JSON.stringify(tagMap, null, 2), {
+            return new Response(JSON.stringify(tagMap, null, 2), { // Keep full log for debug endpoint
                 headers: { 'Content-Type': 'application/json' }
             });
         } catch (e: any) {

@@ -105,9 +105,9 @@ function levenshteinDistance(a: string, b: string): number {
 }
 
 const ASMR_BASE_URL = "https://api.asmr-200.com/api";
-let tagMap: { [key: string]: string } = {};
+// let tagMap: { [key: string]: string } = {}; // Commented out for debugging worker hang
 
-// TODO: Adapt for Cloudflare Workers (e.g., use KV store or load on demand)
+/* // Commented out entire loadTags function for debugging worker hang
 async function loadTags() {
   console.error("loadTags: Starting tag loading process.");
   try {
@@ -160,6 +160,7 @@ async function loadTags() {
     throw error; // Re-throw to be caught by caller
   }
 }
+*/
 
 async function handleSearchAsmr(requestArgs: any, sseWriter: any) { // sseWriter to be defined
   try {
@@ -180,7 +181,13 @@ async function handleSearchAsmr(requestArgs: any, sseWriter: any) { // sseWriter
       processedQuery = rjMatch[1];
     }
     let finalQuery = processedQuery;
+
     if (processedQuery.startsWith('$tag:')) {
+      // Temporarily disable tag search for debugging worker hang
+      const tagDisabledError = new Error("Tag search is temporarily disabled due to an ongoing issue. Please try searching without a tag.");
+      console.error(tagDisabledError.message);
+      throw tagDisabledError;
+      /* // Original tagMap logic commented out
       const userTag = processedQuery.substring(5);
       if (tagMap[userTag]) {
         finalQuery = `$tag:${tagMap[userTag]}`;
@@ -208,10 +215,12 @@ async function handleSearchAsmr(requestArgs: any, sseWriter: any) { // sseWriter
           throw new Error(errorMsg);
         }
       }
+      */
     }
+
     let queryToEncode = finalQuery;
-    if (queryToEncode.startsWith('$tag:')) {
-      queryToEncode = ` ${queryToEncode}$`;
+    if (queryToEncode.startsWith('$tag:')) { // This condition might still be met if query itself is "$tag:something"
+      queryToEncode = ` ${queryToEncode}$`; // This logic might need review if tag search is re-enabled
     }
     const encodedQuery = encodeURIComponent(queryToEncode);
     const params = new URLSearchParams();
@@ -329,29 +338,29 @@ export default {
     // Route based on pathname
     if (pathname === '/') { // Handle root path for MCP SSE connection
       // Send an initial event to confirm connection
-      sendEvent('mcp_info', { status: 'connected', message: 'ASMR One CF Worker ready for MCP communication.' });
+      sendEvent('mcp_info', { status: 'connected', message: 'ASMR One CF Worker ready (Tag functionality limited for testing).' });
       // Keep the stream open for further MCP messages.
       // For now, we just establish the stream.
-      // loadTags() will be called by specific handlers like /sse/search if needed and tagMap is empty.
+      // loadTags() is completely removed from this path for debugging.
       return new Response(stream, { headers: responseHeaders });
 
     } else if (pathname === '/sse/search' && request.method === 'GET') {
-      // Ensure tags are loaded before searching
-      if (Object.keys(tagMap).length === 0) {
-        try {
-          await loadTags(); // Wait for tags specifically for this request path
-          if (Object.keys(tagMap).length === 0) { // Check again after attempting to load
-            sendEvent('error', { message: 'Failed to load tags, search cannot proceed.' });
-            closeStream();
-            return new Response(stream, { headers: responseHeaders });
-          }
-        } catch (e: any) {
-          console.error("Failed to load tags during /sse/search request:", e);
-          sendEvent('error', { message: `Failed to initialize tags for search: ${e.message}` });
-          closeStream();
-          return new Response(stream, { headers: responseHeaders });
-        }
-      }
+      // Tag loading logic is removed for debugging.
+      // if (Object.keys(tagMap).length === 0) {
+      //   try {
+      //     // await loadTags(); // loadTags is disabled
+      //     if (Object.keys(tagMap).length === 0) { 
+      //       sendEvent('error', { message: 'Failed to load tags, search cannot proceed (tags disabled).' });
+      //       closeStream();
+      //       return new Response(stream, { headers: responseHeaders });
+      //     }
+      //   } catch (e: any) {
+      //     console.error("Failed to load tags during /sse/search request (tags disabled):", e);
+      //     sendEvent('error', { message: `Failed to initialize tags for search (tags disabled): ${e.message}` });
+      //     closeStream();
+      //     return new Response(stream, { headers: responseHeaders });
+      //   }
+      // }
 
       // Extract params from query string
       const queryParams: any = {};
@@ -386,23 +395,6 @@ export default {
       return new Response(stream, { headers: responseHeaders });
 
     } else if (pathname === '/sse/random' && request.method === 'GET') {
-      // If handleRandomAsmr were to use tags in the future, a similar loadTags check would be needed here.
-      // Example:
-      // if (Object.keys(tagMap).length === 0) {
-      //   try {
-      //     await loadTags();
-      //     if (Object.keys(tagMap).length === 0) {
-      //       sendEvent('error', { message: 'Failed to load tags for random.' });
-      //       closeStream();
-      //       return new Response(stream, { headers: responseHeaders });
-      //     }
-      //   } catch (e: any) {
-      //     sendEvent('error', { message: `Failed to initialize tags for random: ${e.message}` });
-      //     closeStream();
-      //     return new Response(stream, { headers: responseHeaders });
-      //   }
-      // }
-
       const promise = handleRandomAsmr({}, { write: sendEvent, close: closeStream })
         .then(result => {
           sendEvent('data', result);
@@ -418,15 +410,20 @@ export default {
 
     } else if (pathname === '/load-tags-debug' && request.method === 'GET') {
         // Debug endpoint to trigger tag loading and see the map
-        // Not for production use
+        return new Response("Tag loading is currently disabled for debugging worker hang issue.", { 
+            status: 503,
+            headers: { 'Content-Type': 'text/plain' }
+        });
+        /* // Original debug logic commented out
         try {
-            await loadTags();
-            return new Response(JSON.stringify(tagMap, null, 2), { // Keep full log for debug endpoint
+            // await loadTags(); // loadTags is disabled
+            return new Response(JSON.stringify(tagMap, null, 2), { 
                 headers: { 'Content-Type': 'application/json' }
             });
         } catch (e: any) {
             return new Response(`Error loading tags: ${e.message}`, { status: 500 });
         }
+        */
     }
 
     return new Response('Not Found. Supported paths: /, /sse/search?query=..., /sse/random', { status: 404 });

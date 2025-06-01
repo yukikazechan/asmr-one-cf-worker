@@ -1,0 +1,8 @@
+name = "asmr-one-cf-worker" # 您可以根据喜好更改此名称，它将是您 Cloudflare 上的 Worker 名称
+main = "index.ts"          # 指向您的主 Worker 文件
+compatibility_date = "2024-05-01" # 建议使用一个近期的日期，或根据需要调整
+
+# 如果您计划使用 KV 存储 (可选, 但推荐用于标签缓存):
+# [[kv_namespaces]]
+# binding = "ASMR_TAGS_KV"
+# id = "your_kv_namespace_id_here" # 您需要在 Cloudflare 仪表板创建一个 KV Namespace 并填入其 ID

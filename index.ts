@@ -331,13 +331,8 @@ export default {
       // Send an initial event to confirm connection
       sendEvent('mcp_info', { status: 'connected', message: 'ASMR One CF Worker ready for MCP communication.' });
       // Keep the stream open for further MCP messages.
-      // The actual tool calls will come as subsequent requests or messages over this stream,
-      // depending on how the MCP client and server are designed to interact.
       // For now, we just establish the stream.
-      // Asynchronously load tags if not already loaded, without blocking the SSE connection.
-      if (Object.keys(tagMap).length === 0) {
-        ctx.waitUntil(loadTags().catch(e => console.error("Background tag loading failed:", e)));
-      }
+      // loadTags() will be called by specific handlers like /sse/search if needed and tagMap is empty.
       return new Response(stream, { headers: responseHeaders });
 
     } else if (pathname === '/sse/search' && request.method === 'GET') {
@@ -345,7 +340,7 @@ export default {
       if (Object.keys(tagMap).length === 0) {
         try {
           await loadTags(); // Wait for tags specifically for this request path
-          if (Object.keys(tagMap).length === 0) {
+          if (Object.keys(tagMap).length === 0) { // Check again after attempting to load
             sendEvent('error', { message: 'Failed to load tags, search cannot proceed.' });
             closeStream();
             return new Response(stream, { headers: responseHeaders });
@@ -391,11 +386,22 @@ export default {
       return new Response(stream, { headers: responseHeaders });
 
     } else if (pathname === '/sse/random' && request.method === 'GET') {
-      // Ensure tags are loaded if needed by handleRandomAsmr (current impl doesn't use them for random)
-      // If handleRandomAsmr were to use tags in the future, this check would be important.
-      // For now, this is more of a placeholder for consistency if tag logic expands.
-      // Example: if (Object.keys(tagMap).length === 0) { await loadTags(); }
-      // Add error handling similar to /sse/search if loadTags is critical here.
+      // If handleRandomAsmr were to use tags in the future, a similar loadTags check would be needed here.
+      // Example:
+      // if (Object.keys(tagMap).length === 0) {
+      //   try {
+      //     await loadTags();
+      //     if (Object.keys(tagMap).length === 0) {
+      //       sendEvent('error', { message: 'Failed to load tags for random.' });
+      //       closeStream();
+      //       return new Response(stream, { headers: responseHeaders });
+      //     }
+      //   } catch (e: any) {
+      //     sendEvent('error', { message: `Failed to initialize tags for random: ${e.message}` });
+      //     closeStream();
+      //     return new Response(stream, { headers: responseHeaders });
+      //   }
+      // }
 
       const promise = handleRandomAsmr({}, { write: sendEvent, close: closeStream })
         .then(result => {
